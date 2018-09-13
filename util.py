@@ -1,6 +1,7 @@
 import sys
 import numpy as np
 import ujson as json
+import copy
 
 
 def load_data(path, dict=None):
@@ -32,7 +33,7 @@ def print_model_param(model):
             print (name, param.size())
 
 def sents2idx(data, to_idx):
-    res = data
+    res = copy.deepcopy(data)
     for i, instance in enumerate(data):
         hypo_instance = []
         para_instance = []

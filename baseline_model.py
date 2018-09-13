@@ -15,7 +15,7 @@ class BaselineModel(nn.Module):
         self.word_emb.weight = nn.Parameter(torch.from_numpy(word_emb))
         self.word_emb_dim = 300
         self.sent_emb_dim = opt['sent_emb_dim']
-        self.dropout = 0 #opt['dropout']
+        self.dropout = opt['dropout'] # actually this doesn't work
         if opt['lstm']:
             self.word2sent_lstm = nn.LSTM(self.word_emb_dim, self.sent_emb_dim//2, num_layers=1, bidirectional=True, batch_first=True)
             self.hidden = self.init_hidden()
@@ -33,10 +33,10 @@ class BaselineModel(nn.Module):
             hypo_instance = []
             para_instance = []
             for sent in instance["paragraph"]:
-                sent_res = self.word_emb(torch.LongTensor(sent))#.view(len(sent), 1, self.word_emb_dim)
+                sent_res = self.word_emb(torch.LongTensor(sent))
                 para_instance.append(sent_res)
             for sent in instance["hypothesis"]:
-                sent_res = self.word_emb(torch.LongTensor(sent))#.view(len(sent), 1, self.word_emb_dim)
+                sent_res = self.word_emb(torch.LongTensor(sent))
                 hypo_instance.append(sent_res)
             para_res.append(para_instance)
             hypo_res.append(hypo_instance)
@@ -47,12 +47,8 @@ class BaselineModel(nn.Module):
         for instance in batch:
             tmp = []
             for sent in instance:
-                # Have to normalize embedding vector or else longer vector will have higher score
-                # Just simply sum all word vectors
-                if lstm:    tmp.append(self._sent_emb_lstm(sent))
-                else:
-                    tmp.append(torch.sum(sent, dim=0)/len(sent))
-
+                if lstm:    tmp.append(self._sent_emb_lstm(sent)) # use BiLSTM
+                else:   tmp.append(torch.sum(sent, dim=0)/len(sent)) # Just simply sum all word vectors. Have to divided by length or else longer vector will have higher score.
             tmp = torch.stack(tmp)
             res.append(tmp)
         return res
@@ -67,25 +63,30 @@ class BaselineModel(nn.Module):
         return lstm_out[0][-1]
 
 
-    def _fuse(self, hypo, para, mean=True, return_score_matrix=False):
+    def _fuse(self, hypo, para, max=True, return_score_matrix=False, abs=True):
         '''
         output:
             [ tensor1d ]
+
         '''
         instance_num = len(para)
         res = []
         for i in range(instance_num):
-            # h * d
-            score_tensor = torch.matmul(hypo[i], torch.t(para[i]))
-            # simply compute the mean of the score
-            if not return_score_matrix: #
-                score_tensor = torch.max(score_tensor, dim=0)[0] # max
-                #score_tensor = torch.mean(score_tensor, dim=0) # sum
-
+            score_tensor = torch.matmul(hypo[i], torch.t(para[i])) # m * n
+            if abs:
+                score_tensor = torch.abs(score_tensor)
+            if not return_score_matrix:
+                if max:
+                    score_tensor = torch.max(score_tensor, dim=0)[0] # max
+                else:
+                    score_tensor = torch.mean(score_tensor, dim=0) # mean
             res.append(score_tensor)
         return res
 
     def get_score(self, batch):
+        '''
+        Almost same with forward, but stop at _fuse().
+        '''
         hypo_word_emb, para_word_emb = self._idx2emb(batch, self.word_emb)
         hypo_sent_emb = self._get_sent_emb(hypo_word_emb, lstm=self.opt['lstm'])
         para_sent_emb = self._get_sent_emb(para_word_emb, lstm=self.opt['lstm'])
@@ -101,10 +102,15 @@ class BaselineModel(nn.Module):
         prob = []
         activate_func = nn.Sigmoid()
         for instance in scores:
-            prob.append(activate_func(instance))
+            #prob.append(activate_func(instance))
+            prob.append(torch.tanh(instance))
         return prob
 
     def loss_func(self, batch):
+        '''
+        'backward' this to backprop.
+        Use NLLL.
+        '''
         loss = torch.FloatTensor([0])
         probs = self.forward(batch)
         for i, instance in enumerate(probs):
@@ -115,6 +121,9 @@ class BaselineModel(nn.Module):
         return loss
 
     def predict(self, batch):
+        '''
+        input batch and output the prediction(0/1 vector)
+        '''
         res_list = []
         probs = self.forward(batch)
         for instance in probs:
@@ -123,6 +132,9 @@ class BaselineModel(nn.Module):
         return res_list
 
     def evaluate(self, batch):
+        '''
+        input batch and output the em and f1 score
+        '''
         predict_labels = self.predict(batch)
         ground_truths = [instance["target"] for instance in batch]
         em = 0

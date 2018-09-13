@@ -67,8 +67,11 @@ parser.add_argument('--draw', type=bool, default=True, help='draw figure if task
 parser.add_argument('--whole_output_directory', default='whole_output')
 parser.add_argument('--whole_output_file', default='whole_output')
 
-parser.add_argument('--big', type=bool, default=False)
+parser.add_argument('--big', type=bool, default=True)
 parser.add_argument('--save', type=bool, default=False)
+parser.add_argument('--max', type=bool, default=True) # if false, use mean
+parser.add_argument('--abs', type=bool, default=True) # use abs+tanh, if false, then use Sigmoid
+
 
 
 
@@ -116,23 +119,31 @@ def main():
         raw_dev_data = raw_dev_data[0:16]
         raw_test_data = raw_test_data[0:16]
 
+    # raw_train_data = [{'target': [1, 1], 'paragraph': [['我', '討厭', '吃', '香蕉', '。'], ['我', '喜歡', '吃', '鳳梨','。']], 'hypothesis': [['我', '喜歡', '吃', '香蕉'], ['我','討厭', '吃', '鳳梨']], 'id': 'test-000001'}]
+
+    train_data.extend(dev_data)
+
+    print(len(train_data))
     if opt['task'] & TRAIN:
         train(opt, train_data, model)
     if opt['task'] & EVALUATE:
         evaluate(opt, dev_data, model)
     if opt['task'] & MULTI_EVALUTE:
         train_f1, train_em = multi_evaluate(opt, train_data, model, draw=opt['draw'], data_type='train')
-        dev_f1, dev_em = multi_evaluate(opt, dev_data, model, draw=opt['draw'], data_type='dev')
+        dev_f1, dev_em = multi_evaluate(opt, test_data, model, draw=opt['draw'], data_type='test')
         if opt['draw']:
             plt.legend()
             plt.xlabel('epoches')
             plt.ylabel('score')
             plt.savefig(opt['model_dir']+'/'+opt['name']+'figure.png')
     if opt['task'] & DRAW_ATTENTION:
-        draw_attention(opt, train_data, model, raw_train_data)
+        draw_attention(opt, test_data, model, raw_test_data)
 
-    # raw_dev_data = load_data(opt['data_path']+opt['dev_data'])
-    # whole_output(opt, dev_data, raw_dev_data, model, 'tmp')
+
+    #whole_output(opt, train_data, raw_train_data, model, 'tmp')
+    # print("\n\n===== testing set======")
+    #whole_output(opt, test_data, raw_test_data, model, 'tmp')
+
 
 
 def train(opt, train_data, model):
@@ -194,10 +205,9 @@ def multi_evaluate(opt, data, model, draw=False, data_type='dev'):
     return f1_list, em_list
 
 def whole_output(opt, data, raw_data, model, output_name):
-    output_path = opt['whole_output_directory']+'/'+output_name
     model_path = opt['model_path']
     log.info('Prediction')
-    model.load_checkpoint(model_path)
+    #model.load_checkpoint(model_path)
     prediction = model.predict(data)
     for p,d in zip(prediction, raw_data):
         log.critical(d["id"])
@@ -242,7 +252,8 @@ def draw_attention(opt, data, model, raw_data):
 # python3 main.py -t 2 --model_path model_dir/epoch5
 # python3 main.py -t 1 --name NAME -e EPOCH
 # python3 main.py -t 4  -e 15 --draw t --name NAME
-# python3 main.py -t 8 --name NAME -e 39
+# python3 main.py -t 8 --name NAME -e 39 --big t
+# time python3 main.py -t 0 --big t --name abs_tanh_large
 
 if __name__ == '__main__':
     main()
